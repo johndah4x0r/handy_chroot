@@ -1,4 +1,4 @@
-# handy-chroot
+# handy\_chroot
 ## A stupidly simple 'chroot' script
 
 ### What is this thing?
@@ -33,5 +33,5 @@ you were running it in a real machine, without emulation.
 ---
 Well, you still need to be both a **CONSOLE KUNG FU!** and a  
 **LINUX MASTER\*** to get the best experience out of this program.  
-_\*Does not include Linux developers_ (you're already !!OP!!)
+*\*Does not include Linux developers* (you're already !!OP!!)
 
