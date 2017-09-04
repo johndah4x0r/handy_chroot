@@ -1,0 +1,358 @@
+#!/bin/bash
+
+# A stupidly simple 'chroot' script.
+# Author: JohnDaH4x0r <terencedoesmc12 AT gmail.com>
+
+# Data & variables
+PROG="$(basename "$0")"
+PID=$$
+ARGS="$*"
+
+# Functions
+
+# Print out information tag
+# $*: Text to write
+#
+info(){
+    local TAG
+    TAG="info]"
+
+    # Print out
+    echo "${TAG} $*" >&2
+}
+
+# Print out error tag
+# $*: Text to write
+#
+error() {
+    local TAG
+    TAG="err!]"
+
+    # Print out
+    echo "${TAG} $*" >&2
+}
+
+# Print out warning tag
+# $*: Text to write
+#
+warn() {
+    local TAG
+    TAG="warn]"
+
+    # Print out
+    echo "${TAG} $*" >&2
+}
+
+# Print out usage
+# $*: Error message
+#
+usage() {
+	local MSG
+	MSG="$*"
+	cat >&2 <<END
+${PROG}: Usage
+
+${PROG} [-h | --help] <chroot_dir> <chroot_img> <target_arch>
+${PROG} <chroot_dir> <target_arch>
+${PROG} <chroot_img> <target_arch>
+
+A stupidly simple 'chroot' script.
+Author: JohnDaH4x0r <terencedoesmc12 AT gmail.com>
+
+END
+
+	if [ "$MSG" != "" ]; then
+		error "$MSG"
+		exit 1
+	else
+		exit 0
+	fi
+
+}
+
+# ======== Complex functions ======== #
+
+# Parse arguments
+parse_args() {
+    while [ "$1" != "" ]; do
+        ARG="$1"
+    	case "$ARG" in
+    		'-h' | '--help')
+    			usage
+    			;;
+    		-* | --*)
+    			usage "Argument not understood: $ARG"
+    			;;
+    	esac
+    	shift
+    done
+}
+
+# Check for POSIX compatibility
+# $1: Directory to check
+#
+# Return code for:
+#   Read-only / no access - 3
+#   Not POSIX - 1
+#
+posix_chk() {
+    local TARGET T1 T2 CWD
+    CWD="$(pwd)"
+    TARGET="$(realpath "$1")"
+    T1=".testfile.1"
+    T2=".testfile.2"
+
+    # Change directory
+    cd "$TARGET" 2>/dev/null
+
+    if [ $? -ne 0 ]; then
+        return 3
+    fi
+
+    # Test read-write
+    touch "$T1" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        cd "$CWD"
+        return 3
+    fi
+
+    # Test POSIX compatibility
+    # Imported from Live Kit Library
+    # Live Kit Improved:
+    #   GitHub Page: http://github.com/johndah4x0r/livekit-improved
+    #   Home page: https://johndah4x0r.github.io/livekit-improved
+    #
+    chmod +x "${T1}" 2>/dev/null && [ -x "$T1" ] && \
+    chmod -x "${T1}" 2>/dev/null && [ ! -x "$T1" ] && \
+    ln -s "${T1}" "${T2}" 2>/dev/null && [ -e "${T2}" ] && \
+    rm "${T1}" "${T2}" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        cd "$CWD"
+        return 1
+    else
+        cd "$CWD"
+        return 0
+    fi
+}
+
+# Mount image file
+# $1: Image file
+#
+# Return code for:
+#   Success - 0
+#   Failure - 1
+#
+mnt_img() {
+    local IMGFILE TEMPDIR
+    IMGFILE="$(realpath "$1")"
+    TEMPDIR="/tmp/$(basename "$IMGFILE").${PID}"
+
+    mkdir "$TEMPDIR" 2>/dev/null
+    if [ $? -ne 0 ] || [ ! -d "$TEMPDIR" ]; then
+        return 1
+    fi
+
+    mount -o loop "$IMGFILE" "$TEMPDIR" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        rm -r "$TEMPDIR"
+        return 1
+    else
+        echo "$TEMPDIR"
+        return 0
+    fi
+}
+
+# Unmount image file
+# $1: Mount directory
+#
+umount_img() {
+    local TARGET
+    TARGET="$1"
+    if [ "$MODE" = "img" ]; then
+        info "${TARGET}: Mounted."
+        info "${TARGET}: Unmounting image file..."
+        umount "$TARGET" 2>/dev/null || umount -l "$TARGET" 2>/dev/null
+    else
+        info "${TARGET}: Not an image mount directory; Skipping..."
+        return 0
+    fi
+}
+# Mount API directories (/proc, /sys, ...)
+# $1: Target directory
+#
+# Return code for:
+#   Success - 0
+#   Failure - 1
+#
+mount_apidir() {
+    local TARGET
+    TARGET="$(realpath "$1")"
+
+    mount -t proc proc "${TARGET}/proc" 2>/dev/null && \
+    mount -o bind /sys "${TARGET}/sys" 2>/dev/null && \
+    mount -o bind /dev "${TARGET}/dev" 2>/dev/null && \
+    mount -t tmpfs tmpfs "${TARGET}/run" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        umount "${TARGET}/*" 2>/dev/null
+        return 1
+    else
+        return 0
+    fi
+}
+
+# Unmount API directories
+# $1: Target directory
+#
+umount_apidir() {
+    local TARGET
+    TARGET="$(realpath "$1")"
+    umount "${TARGET}/proc" 2>/dev/null && \
+    umount "${TARGET}/sys" 2>/dev/null && \
+    umount "${TARGET}/dev" 2>/dev/null && \
+    umount "${TARGET}/run" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        umount -l "${TARGET}/*" 2>/dev/null
+    else
+        return 0
+    fi
+}
+
+
+# ======== Main part ======== #
+
+# Parse arguments
+if [ $# -lt 1 ]; then
+	usage "Expected at least 1 argument; got none!"
+fi
+
+parse_args $*
+
+# Allow only root
+if [ $(id -u) -ne 0 ]; then
+    error "Must be root!"
+    exit 1
+fi
+
+# Start procedure
+info "Running as procces: $PROG - $PID"
+info "Starting procedure..."
+
+ARG1="$1"
+ARG2="$2"
+
+CHROOTDIR="$(realpath "$ARG1")"
+TARGET_ARCH="$ARG2"
+
+if [ "$CHROOTDIR" = "/" ]; then
+    error "/: Root directory! Refusing to change root! (you are already in it!)"
+    exit 1
+fi
+
+if [ -f "$CHROOTDIR" ]; then
+    MODE="img"
+    IMGFILE="$CHROOTDIR"
+    info "$(basename "$IMGFILE"): Is a file; mounting it..."
+
+    CHROOTDIR="$(mnt_img "$IMGFILE")"
+    if [ $? -ne 0 ]; then
+        error "${IMGFILE}: Failed to mount file!"
+        exit 1
+    fi
+elif [ ! -e "$CHROOTDIR" ]; then
+    error "$(basename "$CHROOTDIR"): No such file or directory!"
+    exit 1
+else
+    MODE="ord"
+    info "$(basename "$CHROOTDIR"): Ordinary directory"
+fi
+
+# Test POSIX compatibility
+info "$(basename "$CHROOTDIR"): Testing for POSIX compatibility..."
+posix_chk "$CHROOTDIR"
+case $? in
+    1)
+        error "$(basename "$CHROOTDIR"): Filesystem: Not POSIX compatible!"
+        exit 1
+        ;;
+    3)
+        error "$(basename "$CHROOTDIR"): Filesystem: Read-only / inaccessable"
+        exit 1
+        ;;
+    0)
+        info "$(basename "$CHROOTDIR"): Filesystem: Pass! [read-write, posix-compat]"
+        ;;
+    *)
+        error "Unknown exit code: $?"
+        exit 1
+        ;;
+esac
+
+# Mount API directories
+info "$(basename "$CHROOTDIR"): Mounting API directories..."
+mount_apidir "$CHROOTDIR"
+
+if [ $? -ne 0 ]; then
+    error "$(basename "$CHROOTDIR"): Failed to mount API directories!"
+    exit 1
+else
+    info "$(basename "$CHROOTDIR"): API directories are all mounted."
+fi
+
+# Copy /etc/resolv.conf
+info "Trying to copy /etc/resolv.conf to target..."
+if [ ! -r /etc/resolv.conf ]; then
+	warn "Cannot find and/or read /etc/resolv.conf! No internet on chroot..."
+else
+	info "Copying /etc/resolv.conf to target..."
+	cp /etc/resolv.conf "$CHROOTDIR" 2>/dev/null
+fi
+
+
+# Determine architecture
+info "Checking target architecture..."
+
+SYS_ARCH="$(uname -m)"
+
+case "$TARGET_ARCH" in
+    i*86)
+        info "Target architecture: valid - $TARGET_ARCH"
+        CHROOT="setarch i386 chroot"
+        ;;
+    'x86_64')
+        info "Target architecture: valid - $TARGET_ARCH"
+        CHROOT="setarch i386 chroot"
+        ;;
+    '')
+        warn "Target architecture: [NONE]"
+        info "Falling back to i386"
+        CHROOT="setarch i386 chroot"
+        ;;
+    *)
+        error "Target architecture: invalid - $TARGET_ARCH"
+        exit 1
+        ;;
+esac
+
+# Start changing root
+info "Changing root..."
+
+# Run $CHROOT like what 'root' will do
+env HOME=/root $CHROOT "$CHROOTDIR"
+
+if [ $? -ne 0 ]; then
+    error "$(basename "$CHROOTDIR"): Failed to change root!"
+    echo "Read the errors above to find out more about the error."
+    umount_apidir "$CHROOTDIR"
+    umount_img "$CHROOTDIR"
+    exit 1
+fi
+
+info "$(basename "$CHROOTDIR"): Unmounting API directories..."
+umount_apidir "$CHROOTDIR"
+
+# Unmount $CHROOTDIR, if it is mounted image
+umount_img "$CHROOTDIR"
+
+if [ "$MODE" = "img" ]; then
+    rm -r "$CHROOTDIR"
+fi
