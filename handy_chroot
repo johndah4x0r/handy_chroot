@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 # A stupidly simple 'chroot' script.
 # Author: JohnDaH4x0r <terencedoesmc12 AT gmail.com>
 
@@ -7,7 +8,6 @@
 PROG="$(basename "$0")"
 PID=$$
 ARGS="$*"
-
 # Functions
 
 # Print out information tag
@@ -335,9 +335,7 @@ esac
 
 # Start changing root
 info "Changing root..."
-
-# Run $CHROOT like what 'root' will do
-env HOME=/root $CHROOT "$CHROOTDIR"
+$CHROOT "$CHROOTDIR"
 
 if [ $? -ne 0 ]; then
     error "$(basename "$CHROOTDIR"): Failed to change root!"
