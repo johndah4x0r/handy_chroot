@@ -1,0 +1,4 @@
+.\" Manpage for: handy_chroot
+.TH HANDY_CHROOT 1
+.SH NAME
+handy_chroot \- A stupidly simple chroot script
