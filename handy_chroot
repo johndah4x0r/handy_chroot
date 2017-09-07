@@ -97,9 +97,11 @@ parse_args() {
 
                 # Commence cleanup
                 rm -f "/usr/sbin/handy_chroot"
-                cp "$PROGFILE" /usr/sbin/handy_chroot 2>/dev/null
+                cp "$PROGFILE" /usr/sbin/handy_chroot 2>/dev/null && \
+                chmod 755 /usr/sbin/handy_chroot 2>/dev/null
 
-                if [ $? -ne 0 ] && [ ! -r "/usr/sbin/$PROG" ]; then
+                if [ $? -ne 0 ] && [ ! -r "/usr/sbin/handy_chroot" ] && \
+                    [ ! -x "/usr/sbin/handy_chroot"]; then
                     error "$PROG: Self installation failed!"
                     exit 1
                 else
