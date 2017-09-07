@@ -5,7 +5,8 @@
 # Author: JohnDaH4x0r <terencedoesmc12 AT gmail.com>
 
 # Data & variables
-PROG="$(basename "$0")"
+PROG_FILE="$(realpath "$0")"
+PROG="$(basename "$PROG_FILE")"
 PID=$$
 ARGS="$*"
 # Functions
@@ -15,7 +16,7 @@ ARGS="$*"
 #
 info(){
     local TAG
-    TAG="info]"
+    TAG="*info*"
 
     # Print out
     echo "${TAG} $*" >&2
@@ -26,7 +27,7 @@ info(){
 #
 error() {
     local TAG
-    TAG="err!]"
+    TAG="*err!*"
 
     # Print out
     echo "${TAG} $*" >&2
@@ -37,7 +38,7 @@ error() {
 #
 warn() {
     local TAG
-    TAG="warn]"
+    TAG="*warn*"
 
     # Print out
     echo "${TAG} $*" >&2
@@ -47,26 +48,28 @@ warn() {
 # $*: Error message
 #
 usage() {
-	local MSG
-	MSG="$*"
-	cat >&2 <<END
+    local MSG
+    MSG="$*"
+    cat >&2 <<END
 ${PROG}: Usage
 
-${PROG} [-h | --help] <chroot_dir> <chroot_img> <target_arch>
-${PROG} <chroot_dir> <target_arch>
-${PROG} <chroot_img> <target_arch>
+${PROG} [-h | --help] [-i | --inst ] <chroot_dir> <chroot_img> <arch>
+
+Options:
+    -h | --help  -  Show this screen, then exit
+    -i | --inst  -  Install this script. (There's no purpose to use it if you have it)
 
 A stupidly simple 'chroot' script.
 Author: JohnDaH4x0r <terencedoesmc12 AT gmail.com>
 
 END
 
-	if [ "$MSG" != "" ]; then
-		error "$MSG"
-		exit 1
-	else
-		exit 0
-	fi
+    if [ "$MSG" != "" ]; then
+        error "$MSG"
+        exit 1
+    else
+        exit 0
+    fi
 
 }
 
@@ -74,17 +77,41 @@ END
 
 # Parse arguments
 parse_args() {
+    local ARG
     while [ "$1" != "" ]; do
         ARG="$1"
-    	case "$ARG" in
-    		'-h' | '--help')
-    			usage
-    			;;
-    		-* | --*)
-    			usage "Argument not understood: $ARG"
-    			;;
-    	esac
-    	shift
+        case "$ARG" in
+            '-h' | '--help')
+                usage
+                ;;
+
+            "-i" | "--inst")
+
+                # Allow only root
+                if [ "0$(id -u)" -ne 0 ]; then
+                    error "Must be root!"
+                    exit 1
+                fi
+                info "Self installation started!"
+                info "$PROG: Copying file to /usr/sbin..."
+
+                # Commence cleanup
+                rm -f "/usr/sbin/handy_chroot"
+                cp "$PROGFILE" /usr/sbin/handy_chroot 2>/dev/null
+
+                if [ $? -ne 0 ] && [ ! -r "/usr/sbin/$PROG" ]; then
+                    error "$PROG: Self installation failed!"
+                    exit 1
+                else
+                    info "Self installation finished!"
+                    exit 0
+                fi
+                ;;
+            -* | --*)
+                usage "Argument not understood: $ARG"
+                ;;
+        esac
+        shift
     done
 }
 
@@ -222,20 +249,20 @@ umount_apidir() {
 
 # Parse arguments
 if [ $# -lt 1 ]; then
-	usage "Expected at least 1 argument; got none!"
+    usage "Expected at least 1 argument; got none!"
 fi
 
 parse_args $*
 
 # Allow only root
-if [ $(id -u) -ne 0 ]; then
+if [ "0$(id -u)" -ne 0 ]; then
     error "Must be root!"
     exit 1
 fi
 
 # Start procedure
 info "Running as procces: $PROG - $PID"
-info "Starting procedure..."
+info "Starting proccess..."
 
 ARG1="$1"
 ARG2="$2"
@@ -244,7 +271,7 @@ CHROOTDIR="$(realpath "$ARG1")"
 TARGET_ARCH="$ARG2"
 
 if [ "$CHROOTDIR" = "/" ]; then
-    error "/: Root directory! Refusing to change root! (you are already in it!)"
+    error "/: Refusing to change root! (it's your system root, b\$*#&!)"
     exit 1
 fi
 
@@ -279,7 +306,7 @@ case $? in
         exit 1
         ;;
     0)
-        info "$(basename "$CHROOTDIR"): Filesystem: Pass! [read-write, posix-compat]"
+        info "$(basename "$CHROOTDIR"): Filesystem: POSIX compatible (+ read-write)"
         ;;
     *)
         error "Unknown exit code: $?"
@@ -301,10 +328,10 @@ fi
 # Copy /etc/resolv.conf
 info "Trying to copy /etc/resolv.conf to target..."
 if [ ! -r /etc/resolv.conf ]; then
-	warn "Cannot find and/or read /etc/resolv.conf! No internet on chroot..."
+    warn "Cannot find and/or read /etc/resolv.conf! No internet on chroot..."
 else
-	info "Copying /etc/resolv.conf to target..."
-	cp /etc/resolv.conf "$CHROOTDIR" 2>/dev/null
+    info "Copying /etc/resolv.conf to target..."
+    cp /etc/resolv.conf "$CHROOTDIR"/etc/resolv.conf 2>/dev/null
 fi
 
 
